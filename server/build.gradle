@@ -68,7 +68,8 @@ android.libraryVariants.configureEach { variant ->
             String libserverClassDir = libServerCompileTask.get().destinationDirectory.get().asFile.absolutePath + "/${serverPkg}/common"
 
             String androidJar = "${android.sdkDirectory.path}/platforms/android-${target_sdk}/android.jar"
-            String d8Path = "${android.sdkDirectory.path}/build-tools/${android.buildToolsVersion}/d8"
+            String d8Exe = org.gradle.internal.os.OperatingSystem.current().isWindows() ? ".bat" : ""
+            String d8Path = "${android.sdkDirectory.path}/build-tools/${android.buildToolsVersion}/d8${d8Exe}"
 
             println("Creating am.jar...")
             def amArgs = ['--release', '--min-api', min_sdk, '--output', amJar.absolutePath, '--lib', androidJar]

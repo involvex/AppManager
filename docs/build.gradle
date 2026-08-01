@@ -30,6 +30,10 @@ interface InjectedExecOps {
 tasks.register('buildDocs') {
     def injected = project.objects.newInstance(InjectedExecOps)
     doLast {
+        if (org.gradle.internal.os.OperatingSystem.current().isWindows()) {
+            println("=== docs: skipped (Windows) ===")
+            return
+        }
         println("=== docs: start ===")
         String buildExec = "${rootProject.projectDir.absolutePath}/scripts/make_docs.sh"
         injected.execOps.exec {
