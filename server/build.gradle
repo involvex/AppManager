@@ -68,8 +68,30 @@ android.libraryVariants.configureEach { variant ->
             String libserverClassDir = libServerCompileTask.get().destinationDirectory.get().asFile.absolutePath + "/${serverPkg}/common"
 
             String androidJar = "${android.sdkDirectory.path}/platforms/android-${target_sdk}/android.jar"
+            // d8 ships as a shell script on Unix and as a .bat wrapper on Windows.
             String d8Exe = org.gradle.internal.os.OperatingSystem.current().isWindows() ? ".bat" : ""
             String d8Path = "${android.sdkDirectory.path}/build-tools/${android.buildToolsVersion}/d8${d8Exe}"
+            // Make sure the build script and d8 use the same version of java.
+            String gradleJavaHome = System.getProperty("java.home")
+            // The launcher is "java" on Unix but "java.exe" on Windows, so probe both
+            // names before falling back to the parent directory (JDK 8 "jre" layouts).
+            File gradleJava = new File(gradleJavaHome, "bin/java")
+            if (!gradleJava.isFile() && !new File(gradleJavaHome, "bin/java.exe").isFile()) {
+                File gradleJavaParent = new File(gradleJavaHome).parentFile
+                if (gradleJavaParent != null && new File(gradleJavaParent, "bin/java").isFile()) {
+                    gradleJavaHome = gradleJavaParent.path
+                }
+            }
+            String gradlePath = new File(gradleJavaHome, "bin").path + File.pathSeparator + System.getenv('PATH')
+
+            def runD8 = { List<String> args ->
+                injected.execOps.exec {
+                    environment "JAVA_HOME", gradleJavaHome
+                    environment "PATH", gradlePath
+                    executable = d8Path
+                    it.args(args)
+                }
+            }
 
             println("Creating am.jar...")
             def amArgs = ['--release', '--min-api', min_sdk, '--output', amJar.absolutePath, '--lib', androidJar]
@@ -79,10 +101,7 @@ android.libraryVariants.configureEach { variant ->
             amArgs.addAll(Files.list(Paths.get("${serverClassDir}/${serverPkg}")).filter {
                 !it.fileName.toString().startsWith("RootServiceMain") && Files.isRegularFile(it)
             }.map { it.toString() }.sorted().collect(Collectors.toList()))
-            injected.execOps.exec {
-                executable = d8Path
-                args = amArgs
-            }
+            runD8(amArgs)
             println("Created ${amJar}")
 
             println("Creating main.jar...")
@@ -93,10 +112,7 @@ android.libraryVariants.configureEach { variant ->
             mainArgs.addAll(Files.list(Paths.get("${serverClassDir}/${serverPkg}")).filter {
                 it.fileName.toString().startsWith("RootServiceMain") && Files.isRegularFile(it)
             }.map { it.toString() }.sorted().collect(Collectors.toList()))
-            injected.execOps.exec {
-                executable = d8Path
-                args = mainArgs
-            }
+            runD8(mainArgs)
             println("Created ${mainJar}")
         }
     }

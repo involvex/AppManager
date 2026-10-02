@@ -85,6 +85,11 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
     private int mNeededProperty;
     private int mSortOrder;
     private String mSearchQuery;
+    /**
+     * Settings-backed special permissions do not necessarily broadcast a package change. Keep track
+     * of launching one so the current tab can re-query its state when the Settings activity returns.
+     */
+    private boolean mSettingsActionLaunched;
 
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
@@ -147,13 +152,15 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
     public void onCreateMenu(@NonNull Menu menu, @NonNull MenuInflater inflater) {
         switch (mNeededProperty) {
             case APP_OPS:
-                inflater.inflate(R.menu.fragment_app_details_app_ops_actions, menu);
+                if (viewModel != null && !viewModel.isExternalApk()) {
+                    inflater.inflate(R.menu.fragment_app_details_app_ops_actions, menu);
+                }
                 break;
             case USES_PERMISSIONS:
                 if (viewModel != null && !viewModel.isExternalApk()) {
                     inflater.inflate(R.menu.fragment_app_details_permissions_actions, menu);
-                    break;
-                } // else fallthrough
+                } else inflater.inflate(R.menu.fragment_app_details_refresh_actions, menu);
+                break;
             case PERMISSIONS:
                 inflater.inflate(R.menu.fragment_app_details_refresh_actions, menu);
                 break;
@@ -300,6 +307,12 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
     public void onResume() {
         super.onResume();
         if (viewModel != null) {
+            if (mSettingsActionLaunched) {
+                // Permissions may have been altered
+                mSettingsActionLaunched = false;
+                ProgressIndicatorCompat.setVisibility(progressIndicator, true);
+                viewModel.load(mNeededProperty);
+            }
             int sortOrder = viewModel.getSortOrder(mNeededProperty);
             String searchQuery = viewModel.getSearchQuery();
             if (sortOrder != mSortOrder || !Objects.equals(searchQuery, mSearchQuery)) {
@@ -740,7 +753,11 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
             } else holder.textView2.setVisibility(View.GONE);
             // Protection level
             String protectionLevel = Utils.getProtectionLevelString(permissionInfo);
-            protectionLevel += '|' + (permissionItem.permission.isGranted() ? "granted" : "revoked");
+            protectionLevel += '|' + (permissionItem.isGranted() ? "granted" : "revoked");
+            if (permissionItem.hasOverlayState() && permissionItem.permission.isGranted()
+                    && !permissionItem.isGranted()) {
+                protectionLevel += " (by App Manager)";
+            }
             holder.textView3.setText(String.format(Locale.ROOT, "⚑ %s", protectionLevel));
             // Set background color
             if (permissionItem.isDangerous) {
@@ -763,6 +780,8 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
             // Permission Switch
             boolean canGrantOrRevokePermission = permissionItem.modifiable && !mIsExternalApk;
             if (canGrantOrRevokePermission) {
+                holder.settingButton.setVisibility(View.GONE);
+                holder.settingButton.setOnClickListener(null);
                 holder.toggleSwitch.setVisibility(View.VISIBLE);
                 holder.toggleSwitch.setChecked(permissionItem.isGranted());
                 // TODO: 22/5/23 Perform using a ViewModel
@@ -792,6 +811,7 @@ public class AppDetailsPermissionsFragment extends AppDetailsFragment {
                         try {
                             String packageName = Objects.requireNonNull(viewModel).getPackageName();
                             startActivity(permissionItem.settingItem.toIntent(Objects.requireNonNull(packageName)));
+                            mSettingsActionLaunched = true;
                         } catch (Throwable th) {
                             th.printStackTrace();
                             if (th.getLocalizedMessage() != null) {
